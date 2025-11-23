@@ -1,0 +1,122 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8" />
+  <title>Garments Portal — Retailer</title>
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+  <div class="container">
+    <div class="header">
+      <h1>Garments Portal — Retailer</h1>
+      <div>
+        <input id="retailerName" placeholder="Your name" class="input" style="width:180px"/>
+        <button id="placeOrderBtn" class="btn btn-primary">Place Order</button>
+      </div>
+    </div>
+
+    <div style="display:flex;gap:12px;margin-bottom:12px">
+      <select id="vendorFilter" class="input" style="width:220px">
+        <option value="">All vendors</option>
+      </select>
+      <input id="searchInput" class="input" placeholder="Search item or vendor"/>
+    </div>
+
+    <div id="itemsList"></div>
+
+    <div class="vendor-card">
+      <h3>Cart</h3>
+      <div id="cartList" class="small">Cart is empty</div>
+    </div>
+
+    <hr/>
+    <div class="small">Note: This demo decrements stock when purchase is made. No payment integration included.</div>
+  </div>
+
+  <script src="app.js"></script>
+  <script>
+    // page-specific initialization for retailer
+    (async function(){
+      const vendorFilter = document.getElementById('vendorFilter');
+      const resp = await fetch('/api/vendors');
+      const vendors = await resp.json();
+      for(const v of vendors){
+        const opt = document.createElement('option'); opt.value = v.id; opt.textContent = `${v.name} (${v.ready_item_count} ready)`;
+        vendorFilter.appendChild(opt);
+      }
+      await loadItems();
+
+      vendorFilter.addEventListener('change', loadItems);
+      document.getElementById('searchInput').addEventListener('input', loadItems);
+      document.getElementById('placeOrderBtn').addEventListener('click', placeOrder);
+    })();
+
+    async function loadItems(){
+      const vendor = document.getElementById('vendorFilter').value;
+      const q = document.getElementById('searchInput').value.toLowerCase().trim();
+      const url = vendor ? `/api/items?vendor=${vendor}` : '/api/items';
+      const resp = await fetch(url);
+      const items = await resp.json();
+      const list = document.getElementById('itemsList'); list.innerHTML='';
+      if(items.length===0){ list.innerHTML='<div class="small">No items available</div>'; return; }
+      for(const it of items){
+        if(q && !(it.name.toLowerCase().includes(q) || (it.vendor_name||'').toLowerCase().includes(q))) continue;
+        const div = document.createElement('div'); div.className='item-row';
+        div.innerHTML = `<div class="flex">
+           <div>
+             <strong>${it.name}</strong><div class="small">${it.vendor_name} • ${it.size || ''} ${it.color ? '• ' + it.color : ''}</div>
+           </div>
+           <div class="right"><div><strong>₹${Number(it.price).toFixed(2)}</strong></div>
+           <div class="small">Qty: ${it.quantity}</div>
+           <div style="margin-top:8px">
+             <input type="number" min="1" max="${it.quantity}" value="1" style="width:80px" id="qty-${it.id}">
+             <button class="btn btn-primary" onclick="addToCart(${it.id}, '${escapeHtml(it.name)}', ${it.price}, ${it.quantity})">Add</button>
+           </div>
+           </div>
+         </div>`;
+        list.appendChild(div);
+      }
+    }
+
+    // basic cart stored in-memory
+    const CART = {};
+    function addToCart(itemId, name, price, maxQty){
+      const qIn = document.getElementById('qty-'+itemId);
+      const qty = Number(qIn ? qIn.value : 1);
+      if (!qty || qty < 1) return alert('Enter qty');
+      if (qty > maxQty) return alert('Not enough stock');
+      CART[itemId] = { item_id: itemId, name, qty, price };
+      renderCart();
+    }
+    function renderCart(){
+      const el = document.getElementById('cartList');
+      const items = Object.values(CART);
+      if(items.length===0){ el.innerHTML='Cart is empty'; return; }
+      el.innerHTML = items.map(it=>`<div>${it.name} — ${it.qty} × ₹${Number(it.price).toFixed(2)}</div>`).join('') +
+        `<div style="margin-top:8px"><button class="btn btn-ghost" onclick="clearCart()">Clear</button></div>`;
+    }
+    function clearCart(){ for(const k in CART) delete CART[k]; renderCart(); }
+
+    async function placeOrder(){
+      const retailer_name = document.getElementById('retailerName').value.trim();
+      if(!retailer_name) return alert('Enter your name first');
+      const items = Object.values(CART).map(i=>({ item_id: i.item_id, qty: i.qty }));
+      if(items.length===0) return alert('Cart empty');
+      const resp = await fetch('/api/orders',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({retailer_name, items})});
+      const data = await resp.json();
+      if(!resp.ok) return alert('Order failed: ' + (data.error || 'unknown'));
+      alert('Order placed. Order id: ' + data.order_id);
+      clearCart();
+      loadItems();
+    }
+
+    // minor helper
+    function escapeHtml(s){
+      return s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/"/g,'&quot;').replace(/'/g,'&#039;');
+    }
+
+  </script>
+</body>
+</html>
+
